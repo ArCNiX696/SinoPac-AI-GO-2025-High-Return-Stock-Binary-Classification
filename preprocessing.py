@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 from tkinter import filedialog
+import argparse
 
 #---------------------------------------- Dataset preview ---------------------------------------#                 
 """
@@ -12,6 +13,7 @@ def open_csv(chunk: int = None,
              dataset_dim: bool= False,
              target_desc: str = None,
              all_names: bool = False,
+             create_balanced: bool = False,
              split_by_feature_type: bool = True,
              export: bool = False) -> pd.DataFrame:
     print(f"{'-'*90}")
@@ -27,6 +29,11 @@ def open_csv(chunk: int = None,
     directory = os.path.dirname(file_path)
     print(f"File path: {file_path}")
     print(f"Directory: {directory}")
+
+    if create_balanced:
+        balanced_dataset(file_path=file_path,
+                         target_col='飆股',
+                         save=export)
 
     # count row & columns.
     if dataset_dim:
@@ -88,8 +95,81 @@ def open_csv(chunk: int = None,
         return df_cleaned
     
     else:
-        if df is not None:
-            return df
+        return
+
+def balanced_dataset(file_path: str,
+                     target_col: str,
+                     save: bool = True,
+                     chunksize: int = 1000) -> pd.DataFrame:
+    """
+    Creates a balanced dataset by:
+    - Taking all samples of the minority class.
+    - Selecting an equal number of majority class samples with the fewest nulls.
+
+    Args:
+        file_path (str): Path to the original CSV.
+        target_col (str): Name of the target column with class labels.
+        save (bool): Whether to export the balanced dataset to CSV.
+        chunksize (int): Number of rows to read per chunk.
+
+    Returns:
+        pd.DataFrame: The balanced dataset.
+    """
+    print("-"*90)
+    print("Function ---> balanced_dataset\n")
+    print(f"Reading in chunks of {chunksize} rows...")
+    
+    # First pass: count samples per class
+    class_counts = {}
+    for chunk in pd.read_csv(file_path, chunksize=chunksize):
+        for cls, cnt in chunk[target_col].value_counts().to_dict().items():
+            class_counts[cls] = class_counts.get(cls, 0) + cnt
+    
+    if len(class_counts) < 2:
+        raise ValueError(f"Only one class found in '{target_col}'.")
+    
+    # Determine minority class and its size
+    cls_counts_series = pd.Series(class_counts)
+    minority_class = cls_counts_series.idxmin()
+    minority_n = cls_counts_series.min()
+    print(f"Minority class: {minority_class} with {minority_n} samples")
+    
+    # Collect minority samples and maintain top majority samples
+    minority_list = []
+    majority_best = pd.DataFrame()
+    
+    for chunk in pd.read_csv(file_path, chunksize=chunksize):
+        # Minority rows
+        min_chunk = chunk[chunk[target_col] == minority_class]
+        if not min_chunk.empty:
+            minority_list.append(min_chunk)
+        # Majority rows
+        maj_chunk = chunk[chunk[target_col] != minority_class].copy()
+        if not maj_chunk.empty:
+            maj_chunk['_null_count'] = maj_chunk.isnull().sum(axis=1)
+            combined = pd.concat([majority_best, maj_chunk])
+            # Keep rows with fewest nulls
+            majority_best = combined.nsmallest(minority_n, '_null_count').drop(columns=['_null_count'])
+
+        print(f"---> chunk number {chunk} finished!")
+    # Concatenate all minority and sampled majority
+    minority_df = pd.concat(minority_list)
+    if len(minority_df) > minority_n:
+        minority_df = minority_df.sample(n=minority_n, random_state=42)
+    
+    balanced = pd.concat([minority_df, majority_best]).reset_index(drop=True)
+    print(f"Balanced dataset size: {balanced.shape[0]} rows ({minority_n} per class)")
+    
+    # Export if requested
+    if save:
+        base = os.path.splitext(os.path.basename(file_path))[0]
+        directory = os.path.dirname(file_path)
+        out_path = os.path.join(directory, f"{base}_balanced.csv")
+        balanced.to_csv(out_path, index=False)
+        print(f"Balanced dataset saved at: {out_path}")
+    
+    print("-"*90)
+    return balanced
         
 def separate_feature_type(file_path: str, save: bool = True) -> tuple:
     print(f"{'-'*90}")
@@ -156,10 +236,51 @@ def separate_feature_type(file_path: str, save: bool = True) -> tuple:
     print(f"{'-'*90}")
     return df_cleaned, df_technical, df_lag
 
+def main(args):
+    open_csv(
+        chunk=args.chunk,
+        dataset_dim=args.dataset_dim,
+        target_desc=args.target_desc,
+        all_names=args.all_names,
+        create_balanced=args.create_balanced,
+        split_by_feature_type=args.split_by_feature_type,
+        export=args.export
+    )
+
 if __name__ == '__main__':
-    open_csv(chunk=None,
-             dataset_dim=False,
-             target_desc="飆股",
-             all_names=False,
-             split_by_feature_type=True,
-             export=True)
+    parser = argparse.ArgumentParser(
+        description="Load and preprocess a large CSV with various options."
+    )
+    parser.add_argument(
+        "--chunk", type=int, default=None,
+        help="Number of rows to read as a chunk (for preview)."
+    )
+    parser.add_argument(
+        "--dataset_dim", type=bool, default=True,
+        help="If set, only print dataset dimensions and exit."
+    )
+    parser.add_argument(
+        "--target_desc", type=str, default="飆股",
+        help="Name of the target/label column to analyze (e.g. '飆股')."
+    )
+    parser.add_argument(
+        "--all_names",type=bool, default=False,
+        help="If set, print all column names instead of a summary."
+    )
+    parser.add_argument(
+        "--create_balanced", type=bool, default=False,
+        help="If set, build and optionally save a balanced subset."
+    )
+    parser.add_argument(
+        "--split_by_feature_type",type=bool, default=False,
+        help="If set, split features by type (technical, time series, cleaned)."
+    )
+    parser.add_argument(
+        "--export",type=bool, default=False,
+        help="If set, export any generated datasets to CSV."
+    )
+
+    args = parser.parse_args()
+    main(args)
+
+
