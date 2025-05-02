@@ -1,7 +1,9 @@
+from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_classif
 import pandas as pd
-import os
+import numpy as np
 from tkinter import filedialog
 import argparse
+import os
 
 #---------------------------------------- Dataset preview ---------------------------------------#                 
 """
@@ -14,7 +16,8 @@ def open_csv(chunk: int = None,
              target_desc: str = None,
              all_names: bool = False,
              create_balanced: bool = False,
-             split_by_feature_type: bool = True,
+             split_by_feature_type: bool = False,
+             best_features: bool = False,
              export: bool = False) -> pd.DataFrame:
     print(f"{'-'*90}")
     print(f"Function ---> open_csv\n\nSummary:")
@@ -34,6 +37,11 @@ def open_csv(chunk: int = None,
         balanced_dataset(file_path=file_path,
                          target_col='飆股',
                          save=export)
+    
+    if best_features:
+        df = pd.read_csv(file_path)
+        df = drop_highly_correlated(df=df)
+        select_best_features(df=df)
 
     # count row & columns.
     if dataset_dim:
@@ -96,7 +104,8 @@ def open_csv(chunk: int = None,
     
     else:
         return
-
+    
+# *** Create a balanced dataset *** #
 def balanced_dataset(file_path: str,
                      target_col: str,
                      save: bool = True,
@@ -170,7 +179,8 @@ def balanced_dataset(file_path: str,
     
     print("-"*90)
     return balanced
-        
+
+# *** Split the original dataset in 3: Time series, technical analysis, common features. *** #   
 def separate_feature_type(file_path: str, save: bool = True) -> tuple:
     print(f"{'-'*90}")
     print("Function ---> separate_feature_type\n\nSummary:")
@@ -236,6 +246,49 @@ def separate_feature_type(file_path: str, save: bool = True) -> tuple:
     print(f"{'-'*90}")
     return df_cleaned, df_technical, df_lag
 
+# *** Calculate corr matrix and drop highly correlated features *** #
+def drop_highly_correlated(df: pd.DataFrame,
+                           threshold: float = 0.95) -> pd.DataFrame:
+    print(f"\nDropping highly correlated features...")
+    corr_matrix = df.corr().abs() # we just need the absolute value, it does not matter if it is pos or neg correlated.
+    upper = corr_matrix.where(
+        np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+    ) # do not repeat values, we only keep the upper part of the matrix with triu, k=1 because we don't need the diagonal,
+      # then we create a boolean mask of it.  
+
+    to_drop = [col for col in upper.columns if any( upper[col] > threshold)]
+    print(f"features to drop ---> (|corr| > {threshold}: {to_drop})") 
+
+    return df.drop(columns=to_drop)
+
+def select_best_features(df: pd.DataFrame,
+                         target: str="飆股",
+                         keep_ratio: float = 0.6):
+    x = df.drop(columns=[target])
+    y = df[target]
+    n_feats = x.shape[1]
+    k = int(n_feats * keep_ratio)
+    k = max(1, min(k, n_feats)) # 1 ≤ k ≤ n_feats
+    print(f"\nThe dataset has: {n_feats} columns\nSelecting {k} best features in the dataset...")
+
+    selector = SelectKBest(score_func=f_classif, k=k)
+    selector.fit(x, y)
+
+    scores = pd.Series(selector.scores_, index=x.columns)
+    scores = scores.sort_values(ascending=False)
+    print(f"Top features vy ANOVA F-score:\n{scores.head(k)}")
+
+    x_reduced = selector.transform(x)
+    selected_cols = scores.head(k).index.tolist()
+
+    df_reduced = pd.DataFrame(x_reduced, columns = selected_cols)
+    df_reduced[target] = y.values
+
+    out_path = os.path.join("./test/", "kbest_dataset.csv")
+
+    df_reduced.to_csv(out_path, index=False) 
+
+# *** main function *** #
 def main(args):
     open_csv(
         chunk=args.chunk,
@@ -244,6 +297,7 @@ def main(args):
         all_names=args.all_names,
         create_balanced=args.create_balanced,
         split_by_feature_type=args.split_by_feature_type,
+        best_features=args.best_features,
         export=args.export
     )
 
@@ -256,7 +310,7 @@ if __name__ == '__main__':
         help="Number of rows to read as a chunk (for preview)."
     )
     parser.add_argument(
-        "--dataset_dim", type=bool, default=True,
+        "--dataset_dim", type=bool, default=False,
         help="If set, only print dataset dimensions and exit."
     )
     parser.add_argument(
@@ -276,7 +330,11 @@ if __name__ == '__main__':
         help="If set, split features by type (technical, time series, cleaned)."
     )
     parser.add_argument(
-        "--export",type=bool, default=False,
+        "--best_features",type=bool, default=True,
+        help="Apply techniques to select the best features in the dataset."
+    )
+    parser.add_argument(
+        "--export",type=bool, default=True,
         help="If set, export any generated datasets to CSV."
     )
 
