@@ -1,4 +1,5 @@
 from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_classif
+from typing import Optional, List, Dict
 import pandas as pd
 import numpy as np
 from tkinter import filedialog
@@ -12,6 +13,7 @@ import os
 
 # *** Open, previwew, cut & export, etc... *** #
 def open_csv(chunk: int = None,
+             describe_df = False,
              dataset_dim: bool= False,
              target_desc: str = None,
              all_names: bool = False,
@@ -32,16 +34,6 @@ def open_csv(chunk: int = None,
     directory = os.path.dirname(file_path)
     print(f"File path: {file_path}")
     print(f"Directory: {directory}")
-
-    if create_balanced:
-        balanced_dataset(file_path=file_path,
-                         target_col='飆股',
-                         save=export)
-    
-    if best_features:
-        df = pd.read_csv(file_path)
-        df = drop_highly_correlated(df=df)
-        select_best_features(df=df)
 
     # count row & columns.
     if dataset_dim:
@@ -66,19 +58,54 @@ def open_csv(chunk: int = None,
             
             for cls, count in class_counts.items():
                 print(f"     Class {cls}: {count} samples")
-
-            # # print(f"{target_desc} column has {df_target[target_desc].isnull().sum()} of nulls values or empty spaces.")
-
-            # print(f"---> Analyzing nulls vals or empty spaces in the dataset.")
-            # df = pd.read_csv(file_path)
-            # print(f"The dataset has a total of {df.isnull().sum()} nulls values or empty spaces.")
-            
+      
         if all_names:
             print(f"\n---> Dataset features(all):\n{col_names.to_list()}")
         else:
             print(f"\n---> Dataset features:\n{col_names}")
-        raise SystemExit(f"\ndataset_dim visualization finished, exiting... ")
+        
+        if not describe_df:
+            raise SystemExit(f"\ndataset_dim visualization finished, exiting... ")
+
+    if describe_df:
+        df = pd.read_csv(file_path)
+        print("\n=== DATASET DESCRIPTION ===")
+        print(df.describe(include="all"))
+        
+        print("\n=== NULL COUNTS ===")
+        null_counts = df.isnull().sum()
+        print(f"\nall columns:\n{null_counts}")
+        valid_range = (null_counts > 0) #& (null_counts < 20)
+        null_cols = null_counts[valid_range]
+        print(f"\nColumns with null values:\n{null_cols}\na total of {len(null_cols)} columns with null values.")
+
+        total_rows, total_cols = df.shape
+        ratio = 0.30
+        threshold = total_rows * ratio
+        discardable_cols = null_counts[null_counts > threshold]
+        n_discard = len(discardable_cols)
+        percent_cols = (n_discard / total_cols) * 100
+        print(f"\nColumns with more than {ratio*100}% of null values:\n{discardable_cols}")
+        print(f"A total of {len(discardable_cols)} discardable columns.")
+        print(f"\nIf you discard all these columns you might delete {percent_cols:.2f}% of the data in the dataset.")
+  
+        print("\n=== NULL PERCENTAGES ===")
+        null_perc = (df.isnull().mean() * 100).round(2)
+        print(null_perc[null_perc > 0])
+        
+        if not dataset_dim:
+            raise SystemExit("\nFinished describe_df, exiting...")
     
+    if create_balanced:
+        balanced_dataset(file_path=file_path,
+                         target_col='飆股',
+                         save=export)
+    
+    if best_features:
+        df = pd.read_csv(file_path)
+        df = drop_highly_correlated(df=df)
+        select_best_features(df=df, add_name="technical_subset")
+
     # cut dataset.
     if chunk is not None:
         print(f"\n---> Processing first {chunk} rows using chunksize...\n")
@@ -263,7 +290,8 @@ def drop_highly_correlated(df: pd.DataFrame,
 
 def select_best_features(df: pd.DataFrame,
                          target: str="飆股",
-                         keep_ratio: float = 0.6):
+                         keep_ratio: float = 0.6,
+                         add_name: Optional[str]=None):
     x = df.drop(columns=[target])
     y = df[target]
     n_feats = x.shape[1]
@@ -284,7 +312,7 @@ def select_best_features(df: pd.DataFrame,
     df_reduced = pd.DataFrame(x_reduced, columns = selected_cols)
     df_reduced[target] = y.values
 
-    out_path = os.path.join("./test/", "kbest_dataset.csv")
+    out_path = os.path.join("./test/", f"kbest_noredundancy_{add_name}.csv")
 
     df_reduced.to_csv(out_path, index=False) 
 
@@ -292,6 +320,7 @@ def select_best_features(df: pd.DataFrame,
 def main(args):
     open_csv(
         chunk=args.chunk,
+        describe_df=args.describe_df,
         dataset_dim=args.dataset_dim,
         target_desc=args.target_desc,
         all_names=args.all_names,
@@ -310,7 +339,11 @@ if __name__ == '__main__':
         help="Number of rows to read as a chunk (for preview)."
     )
     parser.add_argument(
-        "--dataset_dim", type=bool, default=False,
+        "--describe_df", type=int, default=True,
+        help="Number of rows to read as a chunk (for preview)."
+    )
+    parser.add_argument(
+        "--dataset_dim", type=bool, default=True,
         help="If set, only print dataset dimensions and exit."
     )
     parser.add_argument(
@@ -330,11 +363,11 @@ if __name__ == '__main__':
         help="If set, split features by type (technical, time series, cleaned)."
     )
     parser.add_argument(
-        "--best_features",type=bool, default=True,
+        "--best_features",type=bool, default=False,
         help="Apply techniques to select the best features in the dataset."
     )
     parser.add_argument(
-        "--export",type=bool, default=True,
+        "--export",type=bool, default=False,
         help="If set, export any generated datasets to CSV."
     )
 
