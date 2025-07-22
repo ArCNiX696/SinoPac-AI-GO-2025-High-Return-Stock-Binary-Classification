@@ -5,6 +5,7 @@ import numpy as np
 from tkinter import filedialog
 import argparse
 import os
+import copy
 
 #---------------------------------------- Dataset preview ---------------------------------------#                 
 """
@@ -16,6 +17,7 @@ def open_csv(chunk: int = None,
              describe_df = False,
              dataset_dim: bool= False,
              target_desc: str = None,
+             drop_colums: bool = False,
              all_names: bool = False,
              create_balanced: bool = False,
              split_by_feature_type: bool = False,
@@ -24,7 +26,7 @@ def open_csv(chunk: int = None,
     print(f"{'-'*90}")
     print(f"Function ---> open_csv\n\nSummary:")
     file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
-
+    
     if not file_path:
         raise SystemExit("\n---> open_csv Error 1: CSV file not loaded, try again!")
     else:
@@ -88,7 +90,11 @@ def open_csv(chunk: int = None,
         print(f"\nColumns with more than {ratio*100}% of null values:\n{discardable_cols}")
         print(f"A total of {len(discardable_cols)} discardable columns.")
         print(f"\nIf you discard all these columns you might delete {percent_cols:.2f}% of the data in the dataset.")
-  
+
+        drop_cols(df=df,
+                  cols_to_drop=discardable_cols,
+                  export_path=file_path)
+        
         print("\n=== NULL PERCENTAGES ===")
         null_perc = (df.isnull().mean() * 100).round(2)
         print(null_perc[null_perc > 0])
@@ -315,6 +321,29 @@ def select_best_features(df: pd.DataFrame,
     out_path = os.path.join("./test/", f"kbest_noredundancy_{add_name}.csv")
 
     df_reduced.to_csv(out_path, index=False) 
+
+def drop_cols(df: pd.DataFrame,
+             cols_to_drop:str |list[str]| pd.Series,
+             export_path: str | None) -> pd.DataFrame:
+    if isinstance(cols_to_drop, pd.Series):
+        cols = cols_to_drop.index.tolist()
+
+    elif isinstance (cols_to_drop, str):
+        cols = [cols_to_drop]
+
+    else:
+        cols = list(cols_to_drop)
+
+    df_copy = df.copy(deep=True)
+    df_copy.drop(columns=cols, inplace=True)
+    print(f"\n ---> Dropped columns: {cols}")
+
+    if export_path:
+        export_name, _ = os.path.splitext(export_path)
+        export_path = os.path.join(export_path, f"{export_name}_dropped.csv")
+        df_copy.to_csv(export_path, index=False)
+        print(f"After dropping the columns with null values the dataset was saved to:\n{export_path}\nas: {export_name}")
+    return df_copy
 
 # *** main function *** #
 def main(args):
