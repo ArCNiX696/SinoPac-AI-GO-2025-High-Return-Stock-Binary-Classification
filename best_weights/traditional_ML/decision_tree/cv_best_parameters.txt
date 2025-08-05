@@ -1,0 +1,10 @@
+Best hyperparameters (scoring=f1):
+
+k_folds: 5
+n_iter: 200
+  - criterion: gini
+  - max_depth: 33
+  - max_features: None
+  - min_samples_leaf: 33
+  - min_samples_split: 22
+Mean CV f1: 0.8349
