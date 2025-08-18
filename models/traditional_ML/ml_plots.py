@@ -1,4 +1,5 @@
 import pandas as pd
+from xgboost import plot_importance
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import numpy as np
@@ -10,7 +11,8 @@ def plot_ft_importance(feature_importances,
                        feature_names: list[str],
                        top_features: int = 10,
                        save_dir: Optional[str] = None,
-                       model_name: Optional[str] = None):
+                       model_name: Optional[str] = None,
+                       show: bool = True):
     # ** 1. Config for font CJK ** #
     plt.rcParams['font.family'] = ['Noto Sans CJK JP'] 
     plt.rcParams['axes.unicode_minus'] = False 
@@ -37,14 +39,47 @@ def plot_ft_importance(feature_importances,
         save_path = os.path.join(save_dir, f"feature_importance_{model_name}.png")
         plt.savefig(save_path)
         print(f"Feature importances fig saved successfully to --> {save_dir}")
-        
-    plt.show()
+
+    if show:   
+        plt.show()
+
+# ====== Feature Inportance for XGBoost====== #
+def plot_importance_xgb(model,
+                        importance_type: str,
+                        max_num_features:int,
+                        title:str,
+                        show_values:bool,
+                        model_name:str,
+                        save_dir:str,
+                        show: bool = True):
+    # Chinese characters 
+    plt.rcParams['font.family'] = ['Noto Sans CJK JP'] 
+    plt.rcParams['axes.unicode_minus'] = False 
+    
+    # plot feature importance
+    plot_importance(model,
+                    importance_type=importance_type,
+                    max_num_features=max_num_features,
+                    title=title,
+                    show_values=show_values)
+    
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, f"feature_importance_{model_name}.png")
+        plt.savefig(save_path)
+        print(f"Feature importances fig saved successfully to --> {save_dir}")
+           
+    plt.tight_layout()
+
+    if show:
+        plt.show()
 
 # ====== Feature Inportance ====== #
 def plot_evaluation_metrics(
     metrics: Dict[str, float],
     model_name: Optional[str] = None,
-    save_dir: Optional[str] = None
+    save_dir: Optional[str] = None,
+    show: bool = True
 ) -> None:
     """
     Plots a bar chart of evaluation metrics.
@@ -90,7 +125,9 @@ def plot_evaluation_metrics(
         os.makedirs(os.path.dirname(save_dir), exist_ok=True)
         save_path = os.path.join(save_dir, f"evaluation_metrics_{model_name}.png")
         plt.savefig(save_path, dpi=300)
-    plt.show()
+    
+    if show:
+        plt.show()
 
 
 

@@ -11,7 +11,6 @@ import copy
 """
 1. since the size of the dataset is more then 12 GB, we can preview it without open it
 """
-
 # *** Open, previwew, cut & export, etc... *** #
 def open_csv(chunk: int = None,
              describe_df = False,

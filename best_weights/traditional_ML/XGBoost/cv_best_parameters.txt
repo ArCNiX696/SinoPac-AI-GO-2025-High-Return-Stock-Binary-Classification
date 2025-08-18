@@ -1,0 +1,11 @@
+Best hyperparameters (scoring=f1):
+
+k_folds: 5  - colsample_bytree: 0.8705603246450295
+  - gamma: 2.8723655658995595
+  - learning_rate: 0.2625486330274816
+  - max_depth: 10
+  - reg_alpha: 0.8279408871774919
+  - reg_lambda: 0.7505019247653135
+  - subsample: 0.8997685654597578
+  - n_estimators: 243
+Mean CV f1: 0.8615

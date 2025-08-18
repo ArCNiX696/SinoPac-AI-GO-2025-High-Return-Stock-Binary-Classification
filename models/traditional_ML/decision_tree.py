@@ -3,63 +3,15 @@ from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 from scipy.stats import randint
-from typing import Optional
+import json
 import os
 import numpy as np
-from tqdm import tqdm
 import argparse
 import joblib
 # *** my modules ***#
 import utils as ut
 import ml_plots as mlpl
    
-# ====== Dataloader class ====== #
-class Dataloader():
-    def __init__(self):
-        pass
-    
-    @staticmethod
-    def split_data(df: pd.DataFrame,
-                   validation_size : float,
-                   test_size: float,
-                   target_col: Optional[str] = None,
-                   ):
-        if target_col is not None and target_col not in df.columns:
-            raise KeyError(f"Target column: {target_col} is not in the dataset!")
-        
-        if target_col is None:
-            target_col = df.columns[-1] # if not target col the default is the last col of df.
-            print(f"\nNo target column specified. Using '{target_col}' as default target.")
-
-        if test_size + validation_size >= 1.0:
-            raise ValueError("The sum of test_size and validation_size must be less than 1.0")
-  
-        X = df.drop(columns=[target_col]).values
-        y = df[target_col].values
-
-        X_temp, X_test, y_temp, y_test = train_test_split(
-            X, y, test_size=test_size, stratify=y, random_state=42
-        )
-
-        val_ratio = validation_size / (1.0 - test_size)
-
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_temp, y_temp, test_size=val_ratio, stratify=y_temp, random_state=42
-        )
-
-        print(f"\nX_train: {len(X_train)} | y_train: {len(y_train)}")
-        print(f"X_val: {len(X_val)} | y_val: {len(y_val)}, (this is {val_ratio} of validation ratio!)")
-        print(f"X_test: {len(X_test)} | y_test: {len(y_test)}")
-
-        # Distribution of the clases
-        for name, arr in [("y_train", y_train), ("y_val", y_val), ("y_test", y_test)]:
-            labels, counts = np.unique(arr, return_counts=True)
-            print(f"\nDistribution in {name}:")
-            for label, count in zip(labels, counts):
-                print(f"Label {label}: {count} Samples")
-        
-        return X_train, X_val, X_test, y_train, y_val, y_test
-
 # ====== Cross Validation ====== #
 class CrossValidation():
     def __init__(self,
@@ -172,7 +124,7 @@ class DecisionTree():
                        X: np.ndarray,
                        y: np.ndarray,
                        set_name: str,
-                       features_names: list[str]) -> list:
+                       feature_names: list[str]) -> list:
         """
         1.predict expects (n_samples, n_features).
         2. after the prediction .predict method returns the prediction inside an array
@@ -180,14 +132,16 @@ class DecisionTree():
         """
         print(f"\nEvaluating {set_name} set...")
 
-        # ** call load_checkpoint from utils module ** #
+        # ** 1.call load_checkpoint from utils module ** #
         model, _ = ut.load_checkpoint(path=self.args.checkpoint_path)
-        
-        preds = []
+        preds = model.predict(X)
+        n_pred = 50
+        print(f"\n========= Decision tree predictions vs GTs: =========")
+        print(f"\nPredictions ({n_pred}) values:\n{preds[:50]}\n")
+        print(f"\nGTs ({n_pred}) values:\n{preds[:50]}")
+        print(f"\n=====================================================\n")
 
-        for x in tqdm(X, desc=f"Prediction on {set_name} set", unit="Samples"):
-            preds.append(model.predict(x.reshape(1, -1))[0]) 
-
+        # ** 2.calculate metrics and plot results ** #
         acc = accuracy_score(y, preds)
         precision = precision_score(y, preds)
         recall = recall_score(y, preds)
@@ -195,13 +149,7 @@ class DecisionTree():
         print(f"\nAccuracy: {acc:.4f}\nPrecision: {precision:.4f}\nRecall: {recall:.4f}\nf1 score: {f1:.4f}")
         print(f"\nClassification report {set_name} set:\n{classification_report(y, preds)}")
 
-        mlpl.plot_ft_importance(model.feature_importances_,
-                                feature_names=features_names,
-                                top_features=15,
-                                save_dir=self.args.stats_path,
-                                model_name=f"Random Forest_{set_name}")
-        
-        # plot feature metrics results
+        # ** 3.plot feature metrics results ** #
         metrics = {
             "accuaracy":acc,
             "precision":precision,
@@ -211,10 +159,39 @@ class DecisionTree():
         
         mlpl.plot_evaluation_metrics(metrics,
                                      model_name=f"Decision Tree {set_name}",
-                                     save_dir=self.args.stats_path)  
+                                     save_dir=self.args.stats_path,
+                                     show=self.args.show)  
+        
+        # ** 4. Plot feature importances ** #
+        mlpl.plot_ft_importance(model.feature_importances_,
+                                feature_names=feature_names,
+                                top_features=15,
+                                save_dir=self.args.stats_path,
+                                model_name=f"Decision Tree {set_name}",
+                                show=self.args.show)
+        
+        # ** 5.return the best features ** #
+        importances = pd.Series(model.feature_importances_, index=feature_names)
+        importances_sorted = importances.sort_values(ascending=False)
+        best_importances = int(len(importances_sorted) * self.args.best_features_rate)
+        best_features = importances_sorted.head(best_importances)
+        best_features_dict = best_features.to_dict()
+        
+        print(f"\n========= Best {best_importances} features: =========")
+        for v, k in best_features_dict.items():
+            print(f"{v}: {k}")
+        print(f"\n=====================================================\n")
+
+        with open(self.args.best_features_path, "w", encoding="utf-8") as f:
+            json.dump(best_features_dict, f, ensure_ascii=False, indent=4)
+        print(f"\nBest features json file saved in --> {os.path.dirname(self.args.best_features_path)}")
+        
         return preds
 
 def main(args):
+    if args.CrossValidation and args.train:
+        raise ValueError("Choose either CrossValidation or hold-out training, not both.")
+
     # *** Cross Validation or hold-out validation *** #
     if args.CrossValidation:
         print(f"\nCross validation training activated!")
@@ -225,8 +202,8 @@ def main(args):
         df = ut.open_dataset(purpose="Train" if args.train else "Test")
         df_copy = df.copy()
         X = df_copy.drop(columns=[args.target_col])
-        features_names = X.columns
-        X_train, X_val, X_test, y_train, y_val, y_test = Dataloader.split_data(
+        feature_names = X.columns
+        X_train, X_val, X_test, y_train, y_val, y_test = ut.split_data(
                                                         df=df,
                                                         validation_size=args.validation_size,
                                                         test_size=args.test_size,
@@ -242,50 +219,76 @@ def main(args):
             decision_tree.evaluate_model(X_val,
                                         y_val,
                                         set_name="Validation",
-                                        features_names=features_names)
+                                        feature_names=feature_names)
         # *** Test *** #
         else:
             print(f"\ntest mode activated!")
             decision_tree.evaluate_model(X=X_test,
                                         y=y_test,
                                         set_name="Test",
-                                        features_names=features_names) 
-            
+                                        feature_names=feature_names) 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Decision Tree with train/val/test and tqdm")
-    parser.add_argument("--target_col", type=str, default="飆股", help="Target column name")
-    parser.add_argument("--train", type=bool, default=False, help="If True, train and validate the model")
-    parser.add_argument("--validation_size", type=float, default=0.2, help="Validation set proportion")
-    parser.add_argument("--test_size", type=float, default=0.2, help="Test set proportion")
-    parser.add_argument("--max_depth", type=int, default=33, help="Maximum tree depth")
-    parser.add_argument("--min_samples_split", type=int, default=22, help="Minimum samples to split a node")
-    parser.add_argument("--min_samples_leaf", type=int, default=33, help="Minimum samples in a leaf")
-    parser.add_argument("--criterion", type=str, default="gini", help="Split criterion: gini or entropy")
-    parser.add_argument("--random_state", type=int, default=42, help="Random seed for reproducibility")
+    parser = argparse.ArgumentParser(description="Decision Tree with train/val/test and feature selection")
 
-    # *** Cross Validtion Args *** #
-    parser.add_argument("--CrossValidation", type=bool, default=False, help="If True, activate cross validation.")
-    parser.add_argument("--RandomizedSearchCV", type=bool, default=True, help="If True, train using RandomizedSearchCV and cross validation.")
-    parser.add_argument("--k_folds", type=int, default=5, help="Maximum tree depth")
-    parser.add_argument("--n_iter", type=int, default=200, help="Maximum of iteration for cross validation.")
-    parser.add_argument("--scoring", type=str, default="f1", help="Metric for cross validation score.")
+    # ========== Dataset Config ========== #
+    parser.add_argument("--target_col", type=str, default="飆股",
+                        help="Name of the target column to predict")
+    parser.add_argument("--validation_size", type=float, default=0.2,
+                        help="Proportion of data used for validation set (only in hold-out mode)")
+    parser.add_argument("--test_size", type=float, default=0.2,
+                        help="Proportion of data used for test set")
 
-    # *** Paths *** #
-    parser.add_argument("--checkpoint_path",
-                        type=str,
+    # ========== Training Strategy ========== #
+    parser.add_argument("--train", type=bool, default=False,
+                        help="Train the model using hold-out validation")
+    parser.add_argument("--CrossValidation", type=bool, default=False,
+                        help="Enable cross-validation mode")
+    parser.add_argument("--RandomizedSearchCV", type=bool, default=True,
+                        help="Use RandomizedSearchCV for hyperparameter tuning")
+    parser.add_argument("--k_folds", type=int, default=5,
+                        help="Number of folds for cross-validation")
+    parser.add_argument("--n_iter", type=int, default=200,
+                        help="Number of iterations for RandomizedSearchCV")
+
+    # ========== Model Hyperparameters ========== #
+    parser.add_argument("--max_depth", type=int, default=33,
+                        help="Maximum depth of the tree")
+    parser.add_argument("--min_samples_split", type=int, default=22,
+                        help="Minimum number of samples required to split an internal node")
+    parser.add_argument("--min_samples_leaf", type=int, default=33,
+                        help="Minimum number of samples required at a leaf node")
+    parser.add_argument("--criterion", type=str, default="gini",
+                        help="Function to measure the quality of a split: 'gini', 'entropy', or 'log_loss'")
+    parser.add_argument("--random_state", type=int, default=42,
+                        help="Seed used by the random number generator")
+
+    # ========== Feature Selection ========== #
+    parser.add_argument("--best_features_rate", type=float, default=0.8,
+                        help="Proportion of best features to retain based on importance scores")
+
+    # ========== Evaluation & Paths ========== #
+    parser.add_argument("--scoring", type=str, default="f1",
+                        help="Metric used for cross-validation scoring")
+
+    parser.add_argument("--checkpoint_path", type=str,
                         default=os.path.join("./best_weights/traditional_ML/decision_tree/", "best_model_dt.joblib"),
-                        help="Path to save the checkpoint obtained during training")
-    
-    parser.add_argument("--cv_best_parms_path",
-                        type=str,
+                        help="Path to save the trained model checkpoint")
+
+    parser.add_argument("--cv_best_parms_path", type=str,
                         default=os.path.join("./best_weights/traditional_ML/decision_tree/", "cv_best_parameters.txt"),
-                        help="Path to save cross validation best hyperparameters")
-    
-    parser.add_argument("--stats_path",
-                        type=str,
+                        help="Path to save best hyperparameters found during cross-validation")
+
+    parser.add_argument("--best_features_path", type=str,
+                        default=os.path.join("./best_weights/traditional_ML/decision_tree/", "best_features_dt.json"),
+                        help="Path to save the selected best features as JSON")
+
+    parser.add_argument("--stats_path", type=str,
                         default="./stats/traditional_ML/decision_tree/",
-                        help="Path to save stats")
+                        help="Path to save evaluation stats and plots")
+
+    parser.add_argument("--show", type=bool, default=False,
+                        help="If True, show the plots")
 
     args = parser.parse_args()
-
     main(args=args)

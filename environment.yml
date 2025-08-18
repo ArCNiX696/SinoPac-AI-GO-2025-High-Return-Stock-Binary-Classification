@@ -1,0 +1,27 @@
+name: cpu312
+channels:
+  #- https://repo.anaconda.com/pkgs/main
+  #- https://repo.anaconda.com/pkgs/r
+  - conda-forge
+  - pytorch
+  - defaults
+dependencies:
+  - python=3.10
+  - matplotlib
+  - numpy
+  - pandas
+  - scikit-learn
+  - seaborn
+  - cpuonly
+  - pytorch
+  - torchaudio
+  - torchvision
+  - statsmodels
+  - lightgbm
+  - xgboost
+  - transformers
+  - flask
+  - pip:
+      - pygad
+  
+

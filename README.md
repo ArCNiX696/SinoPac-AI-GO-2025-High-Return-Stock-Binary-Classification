@@ -1,10 +1,8 @@
 # IA Go Competition
 
-**A binary classification challenge to predict “飆股” (high-return stocks) using traditional ML models.**
+**A binary classification challenge to predict “飆股” (high-return stocks) using traditional and deep learning models.**
 
 ---
-
-## 📋 Introduction
 
 ## 📋 Introduction
 
@@ -12,102 +10,97 @@ This project was developed for the **2025 SinoPac AI GO Competition – “股�
 
 To begin, the dataset was balanced to a 1:1 ratio (2,940 samples) and split into three subsets:
 
-
 1. **Technical Analysis subset** (~30 features)  
 2. **Time Series subset** (~465 features)  
 3. **Baseline subset** (~905 features)  
 
-This README focuses on our work with the **Technical Analysis subset** to establish strong baselines before tackling the larger, more challenging subsets.
+This README focuses on our **progressive modeling pipeline**, starting from the Technical Analysis subset and expanding toward more advanced learning architectures.
 
 ---
 
 ## 🎯 Modeling Strategy
 
-1. **Non-linear tree-based models first**  
-   - Decision Tree  
-   - Random Forest  
+### 📌 Stage 1: Traditional ML (Tree-based)
+- **Decision Tree** and **Random Forest** using `RandomizedSearchCV` and `HalvingRandomSearchCV`.
+- Feature importance extracted to guide further model design.
 
-   These capture complex interactions without extensive preprocessing and naturally provide feature-importance scores.
+### 📌 Stage 2: XGBoost (Robust to Missing Values)
+- XGBoost model used to evaluate the relevance of features **even with missing values**.
+- If features with high null rates are **not important**, they are dropped.
+- If **important but incomplete**, values are **imputed** before passing to later models.
 
-2. **Cross-validation & hyperparameter tuning**  
-   - **Decision Tree** optimized with `RandomizedSearchCV`  
-   - **Random Forest** optimized with `HalvingRandomSearchCV`
+### 📌 Stage 3: Meta-feature Selection Pipeline
+- XGBoost is used as a **feature selector** for other classifiers.
+- A cleaned and distilled feature set is passed to neural networks.
 
-3. **Feature selection & meta-dataset**  
-   - Extract top features from each subset  
-   - Merge into a lean “meta-dataset” for further modeling
-
-4. **Deep learning exploration**  
-   - Once the most predictive features are identified, experiment with feed-forward neural nets on the distilled dataset.
-
----
-
-## 📈 Current Results
-
-### Decision Tree (RandomizedSearchCV)
-
-- **Hyperparameters**  
-  - `max_depth`: 5  
-  - `min_samples_split`: 10  
-  - `criterion`: gini  
-
-- **Test Set Metrics**  
-  | Metric     | Score |
-  |------------|:-----:|
-  | Accuracy   | 0.81  |
-  | Precision  | 0.79  |
-  | Recall     | 0.86  |
-  | F1-score   | 0.82  |
-
-![Decision Tree Test Metrics](./docs/evaluation_metrics_Decision_Tree_Test.png)
+### 📌 Stage 4: Deep Learning (MLP Classifier)
+- A **Multi-Layer Perceptron** (MLP) is implemented using PyTorch.
+- Hyperparameters are optimized via **Genetic Algorithms (Pygad)**.
+- Next step: add **Cross-Validation** logic to improve generalization.
 
 ---
 
-### Random Forest (HalvingRandomSearchCV)
+## 📊 Evaluation Results
 
-- **Hyperparameters**  
-  - `n_estimators`: 300  
-  - `max_depth`: 12  
-  - `min_samples_split`: 8  
-  - `min_samples_leaf`: 4  
-  - `max_features`: sqrt  
-  - `criterion`: entropy  
+### ✅ XGBoost Classifier (Feature Selection)
 
-- **Test Set Metrics**  
-  | Metric     | Score |
-  |------------|:-----:|
-  | Accuracy   | 0.85  |
-  | Precision  | 0.82  |
-  | Recall     | 0.88  |
-  | F1-score   | 0.85  |
+- **Optimizer**: `HalvingRandomSearchCV`
+- **Highlights**:
+  - Tolerant to missing values
+  - Used to rank features and decide between dropping or imputing
 
-![Random Forest Test Metrics](./docs/evaluation_metrics_Random_Forest_Test.png)
+| Metric     | Score |
+|------------|:-----:|
+| Accuracy   | 0.84  |
+| Precision  | 0.83  |
+| Recall     | 0.87  |
+| F1-score   | 0.85  |
+
+![XGBoost Test Metrics](docs/evaluation_metrics_XGBoostClassifier Test.png)
 
 ---
 
-## 🔍 Feature Importances
+### ✅ MLP Classifier (Optimized with Genetic Algorithm)
 
-Both models agree that **技術指標_乖離率(20日)** (20-day deviation rate) and multi-day deviation features are the strongest predictors.
+- **Framework**: PyTorch  
+- **Hyperparameters optimized**: hidden layers, activation, dropout, init method  
+- **Current limitations**: lacks cross-validation (to be added next)
 
-| Rank | Decision Tree | Random Forest |
-|:----:|:-------------:|:-------------:|
-| 1    | 技術指標_乖離率(20日)               | 技術指標_乖離率(20日)               |
-| 2    | 個股19天乖離率                      | 個股19天乖離率                      |
-| 3    | 個股10天乖離率                      | 個股10天乖離率                      |
-| …    | …            | …            |
-  
-![Top 15 Feature Importances (Validation)](./docs/feature_importance_Random_Forest_Validation.png)
+| Metric     | Score |
+|------------|:-----:|
+| Accuracy   | 0.84  |
+| Precision  | 0.85  |
+| Recall     | 0.82  |
+| F1-score   | 0.83  |
 
----
-
-## 📂 Next Steps
-
-1. **Apply the same workflow** to the Time Series and Baseline subsets (cleaning or imputing missing data first).  
-2. **Build a meta-dataset** merging top features across subsets.  
-3. **Experiment with non-sequential deep nets** on the distilled feature set.  
-4. **Compare performance** and choose the best end-to-end pipeline.
+![MLP Test Metrics](docs/evaluation_metrics_MlpClassifier.png)
 
 ---
 
-_End of Progress Report_  
+## 📦 Portability with Docker
+
+> ✅ **You can now test the model on ANY Linux machine without installing Python, Conda or libraries.**
+
+### 🐳 Instructions to Run Anywhere with Docker
+
+```bash
+# 1. Install Docker on the target machine
+sudo apt update
+sudo apt install -y docker.io
+sudo usermod -aG docker $USER
+newgrp docker
+
+# 2. Clone or copy this project
+git clone https://github.com/your-user/IA_GO.git
+cd IA_GO
+
+# 3. Build the Docker image
+docker build -t ia-go .
+
+# 4. Run with GUI support (for matplotlib / tkinter)
+xhost +local:root  # enable GUI for Docker (only once)
+docker run --rm \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    ia-go
 
