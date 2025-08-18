@@ -56,7 +56,7 @@ This README focuses on our **progressive modeling pipeline**, starting from the 
 | Recall     | 0.87  |
 | F1-score   | 0.85  |
 
-![XGBoost Test Metrics](docs/evaluation_metrics_XGBoostClassifier Test.png)
+![XGBoost Test Metrics](docs/evaluation_metrics_XGBoostClassifier_Test.png)
 
 ---
 
