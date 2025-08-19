@@ -214,7 +214,7 @@ class XGBoostModel():
             json.dump(best_features_dict, f, ensure_ascii=False, indent=4)
         print(f"\nBest features json file saved in --> {os.path.dirname(self.args.best_features_path)}")
         
-        return preds
+        return X, preds
 
 def main(args):
     if args.CrossValidation and args.train:
@@ -248,10 +248,18 @@ def main(args):
         # *** Test *** #
         else:
             print(f"\ntest mode activated!")
-            xgboost.evaluate_model(X=X_test,
-                                   y=y_test,
-                                   set_name="Test") 
+            GTs, preds = xgboost.evaluate_model(X=X_test,
+                                                y=y_test,
+                                                set_name="Test") 
+            results = pd.DataFrame({
+                "ID" : X_test.index,
+                "GTs" : GTs,
+                "Prediction": preds
+            })
 
+            print(f"\n{'='*90}\nResults:\n{results}\n{'='*90}\n")
+            
+            
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train and optimize an XGBoostClassifier with train/val/test and optional cross-validation")
 

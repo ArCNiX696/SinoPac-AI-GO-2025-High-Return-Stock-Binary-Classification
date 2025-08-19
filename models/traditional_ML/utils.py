@@ -28,6 +28,11 @@ def open_dataset(purpose: str | None,
     
     root.destroy()
     df = pd.read_csv(df_path)
+
+    if "ID" in df.columns:
+        df.set_index("ID", inplace=True)
+        print("\nID column now is the dataset index!")
+
     print(f"\n===== first {rows_to_show} rows of the dataset =====\n\n{df.head(rows_to_show)}") 
     print(f"\ndataset dimensions: {df.shape[0]} rows | {df.shape[1]} columns")
 
