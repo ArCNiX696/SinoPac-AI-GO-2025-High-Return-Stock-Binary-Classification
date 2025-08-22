@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+from torchmetrics import F1Score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report, confusion_matrix
 import numpy as np
 import pandas as pd
@@ -115,7 +116,7 @@ class HypmOptGa():
         temp_args.hidden_units = (hidden_units_0, hidden_units_1, hidden_units_2, hidden_units_3)
         temp_args.dropout = dropout
         temp_args.lr = lr
-        temp_args.epochs = 30
+        temp_args.epochs = 50
         temp_args.train = True
         temp_args.verbose = False
         temp_args.last_init = last_init
@@ -129,8 +130,9 @@ class HypmOptGa():
         model_ops = ModelOps(temp_args)
         model_ops.training()
 
-        val_loss = min(model_ops.history["validation_losses"])
-        fitness = 1.0 / (val_loss + 1e-6)
+        # val_loss = min(model_ops.history["validation_losses"])
+        # fitness = 1.0 / (val_loss + 1e-6)
+        fitness = max(model_ops.history["f1_score"])
 
         return fitness
     
@@ -212,13 +214,16 @@ class ModelOps:
         self.args = args
         self.out_activation = nn.Sigmoid() if self.args.out_activation == "sigmoid" else nn.Tanh() # tanh just in case i wanna change the network later.
         self.criterion = nn.BCEWithLogitsLoss()
+        self.f1 = F1Score(task="binary").to(device)
         self.mlp_classifier = MLPBinaryClassifier(self.args).to(device)
         self.optimizer = torch.optim.Adam(self.mlp_classifier.parameters(), lr = self.args.lr)
         self.best_loss = float('inf')
+        self.best_f1 = float('-inf')
         self.early_stop_counter = 0
         self.history = {
             "training_losses":[],
-            "validation_losses": []
+            "validation_losses": [],
+            "f1_score": []
         }
 
 # =========== Training ===========  
@@ -278,29 +283,33 @@ class ModelOps:
     def validation(self):
         self.mlp_classifier.eval()
         val_loss = 0
-
+        self.f1.reset()
+   
         with torch.no_grad():
             for X_batch, y_batch in tqdm(self.val_loader, desc=f'Validation Epoch {self.epoch + 1}'):
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 logits = self.mlp_classifier(X_batch)
                 logits = logits.view(-1)
                 y_batch = y_batch.view(-1)
+                preds = (self.out_activation(logits) >= 0.5).float().to(device)
 
-                if self.args.verbose:
-                    probs = self.out_activation(logits)
-                    preds = (probs >= 0.5).float()
+                if self.args.verbose:  
                     print(f"\n{'='*90}")
                     print(f"\nValidation info:")
                     print(f"\ninputs shape: {y_batch.shape} | predictions shape: {preds.shape}")
                     print(f"\ninputs: {y_batch}\n\noutputs : {preds}")
                     print(f"\n{'='*90}")
 
+                # calculate loss and f1
                 loss = self.criterion(logits, y_batch)
                 val_loss += loss.item()
+                self.f1.update(preds, y_batch)
         
+        f1 = self.f1.compute()
+        self.history["f1_score"].append(f1.item())
         val_epoch_loss = val_loss / len(self.val_loader)
         self.history["validation_losses"].append(val_epoch_loss)
-        print(f"Validation loss Avg (epoch): {val_epoch_loss:.6f}")
+        print(f"\nValidation loss Avg (epoch): {val_epoch_loss:.6f} | F1-score (epoch): {f1:.4f}")
         
         # create checkpoint.
         checkpoint = {
@@ -317,6 +326,7 @@ class ModelOps:
             },
             "epoch": self.epoch + 1,
             "best_loss": min(self.history["validation_losses"]),
+            "best_f1": max(self.history["f1_score"]),
             "history": self.history,
             "early_stop_counter" : self.early_stop_counter,
             "hyperparams": {
@@ -345,10 +355,13 @@ class ModelOps:
         with open(os.path.join(self.args.save_best_model, last_log_name), "w") as log_file:
             json.dump(last_checkpoint_log, log_file, indent=4)
 
-        if val_epoch_loss < self.best_loss:
-            print(f'\n{"=" * 80}\nNew best model found in epoch: {self.epoch + 1}\n{"=" * 80}\n')
-            self.best_loss = val_epoch_loss
-
+        if f1 > self.best_f1:
+        # if val_epoch_loss < self.best_loss:
+            print(f'\n{"=" * 80}\nNew best model (F1={f1:.4f}) found in epoch: {self.epoch + 1}\n{"=" * 80}\n')
+            self.best_f1 = f1
+            # print(f'\n{"=" * 80}\nNew best model found in epoch: {self.epoch + 1}\n{"=" * 80}\n')
+            # self.best_loss = val_epoch_loss
+            
             # save the best checkpoint only if we get a better loss.
             best_checkpoint_log = checkpoint.copy()
             best_file_name = "best_checkpoint.pth"
@@ -468,7 +481,7 @@ class ModelOps:
             print("\nConfusion matrix:\n", results["confusion_matrix"])
 
             dlpl.plot_evaluation_metrics(metrics,
-                                         model_name="MlpClassifier",
+                                         model_name="MlpClassifier_test",
                                          save_dir=self.args.stats_dir,
                                          show=True)
 
@@ -550,10 +563,15 @@ def main(args: argparse.Namespace):
         # -- normal training and validation --
         else:
             model_ops.training()
-            dlpl.plot_train_val_losses(history=model_ops.history,
-                                       model_name="MlpClassifier",
-                                       path=args.stats_dir,
-                                       show=True)
+            # dlpl.plot_train_val_losses(history=model_ops.history,
+            #                            model_name="MlpClassifier",
+            #                            path=args.stats_dir,
+            #                            show=True)
+            
+            dlpl.plot_train_val_stats(history=model_ops.history,
+                                      model_name="MlpClassifier",
+                                      path=args.stats_dir,
+                                      show=True)
     # --- Test --- 
     else:
         checkpoint_path = os.path.join(args.save_best_model, "best_checkpoint.pth")
@@ -580,7 +598,7 @@ if __name__ == "__main__":
         # ===== MLP args =====
         parser.add_argument('--hidden_units', type=tuple, default=(1024, 512, 256, 128, 64),
                             help='dimensions in the hidden layers.')
-        parser.add_argument('--input_dim', type=int, default=27,
+        parser.add_argument('--input_dim', type=int, default=1342,
                             help='Number of features in the input data')
         parser.add_argument('--output_dim', type=int, default=1,
                             help='Dimension of the Output')
@@ -604,14 +622,14 @@ if __name__ == "__main__":
                             help='Number of epochs to train the model')
         parser.add_argument('--lr', type=float, default=0.001,
                             help='Learning rate for the optimizer')
-        parser.add_argument('--early_stop', type=int, default=100,
+        parser.add_argument('--early_stop', type=int, default=25,
                             help='Number of epochs max for early stoping in case the error does not improve')
         parser.add_argument('--verbose', type=bool, default=False,
                             help='if True you can visualize tran, validation y test special info.')
         
         # ===== Paths ===== #
         parser.add_argument('--input_dataset_path', type=str,
-                            default='./datasets/training_balanced_technical_analysis_dropped.csv',
+                            default='./datasets/most_relevant_feat_df_knn.csv',
                             help='Path to load the input dataset.')
         parser.add_argument('--stats_dir', type=str,
                             default='./stats/Deep_learning/mlp_classifier/',
