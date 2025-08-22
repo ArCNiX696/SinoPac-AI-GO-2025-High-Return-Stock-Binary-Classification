@@ -21,7 +21,7 @@ To address this:
 - Reduced the dataset to a **balanced subset (2,940 rows)**
 - Applied **XGBoost** to identify most relevant features (even those with missing values)
 - Performed **KNN imputation** for remaining nulls
-- Dropped columns with >30% missing
+- Dropped columns with >30% missing (imputing data in these columns could introduce noise and reduce model performance.)
 
 ---
 
